@@ -290,6 +290,7 @@ impl MemFd {
         SealedMemFd::new(fd)
     }
 
+    // Not implementing AsRawFd trait because this is unsafe
     pub unsafe fn as_raw_fd(&self) -> RawFd {
         self.fd
     }
@@ -400,6 +401,7 @@ impl SealedMemFd {
         }
     }
 
+    // Not implementing Clone trait because this can fail
     pub fn clone(&self) -> Result<SealedMemFd, io::Error> {
         let new_fd = match dup(self.fd) {
             Ok(fd) => fd,
