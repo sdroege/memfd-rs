@@ -16,6 +16,7 @@ use std::os::unix::io::{RawFd, IntoRawFd, AsRawFd};
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::io::{IntoRawFd, AsRawFd};
 
     #[test]
     fn test_new() {
@@ -83,7 +84,35 @@ mod tests {
             assert_eq!(s.len(), 1024);
             assert_eq!(s[0], 12u8);
         }
+    }
+
+    #[test]
+    fn test_into_raw_fd() {
+        let mut mfd = MemFd::new("test").unwrap();
+        mfd.set_size(1024).unwrap();
+
+        {
+            let s = mfd.as_mut_slice().unwrap();
+            assert_eq!(s.len(), 1024);
+            s[0] = 12u8;
+        }
+
+        let fd = mfd.into_raw_fd();
+        assert!(fd != -1);
+
+        let smfd = SealedMemFd::new(fd).unwrap();
+        assert_eq!(smfd.as_raw_fd(), fd);
+
         assert_eq!(smfd.get_size().unwrap(), 1024);
+
+        {
+            let s = smfd.as_slice().unwrap();
+            assert_eq!(s.len(), 1024);
+            assert_eq!(s[0], 12u8);
+        }
+
+        assert_eq!(smfd.into_raw_fd(), fd);
+        let _ = SealedMemFd::new(fd).unwrap();
     }
 
     #[test]
