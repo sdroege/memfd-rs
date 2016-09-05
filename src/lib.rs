@@ -118,30 +118,30 @@ mod tests {
 }
 
 #[derive(Debug)]
-enum Map<'a> {
+enum Map {
     Unmapped,
-    ReadWrite(&'a mut [u8], *mut c_void, usize),
+    ReadWrite(*mut c_void, usize),
 }
 
 #[derive(Debug)]
-pub struct MemFd<'a> {
+pub struct MemFd {
     fd: RawFd,
-    map: Map<'a>,
+    map: Map,
 }
 
 #[derive(Debug)]
-enum SealedMap<'a> {
+enum SealedMap {
     Unmapped,
-    ReadOnly(&'a [u8], *mut c_void, usize),
+    ReadOnly(*mut c_void, usize),
 }
 
-pub struct SealedMemFd<'a> {
+pub struct SealedMemFd {
     fd: RawFd,
-    map: SealedMap<'a>,
+    map: SealedMap,
 }
 
-impl<'a> MemFd<'a> {
-    pub fn new<T: Into<Vec<u8>>>(name: T) -> Result<MemFd<'a>, io::Error> {
+impl MemFd {
+    pub fn new<T: Into<Vec<u8>>>(name: T) -> Result<MemFd, io::Error> {
         let c_name = try!(CString::new(name.into())
             .map_err(|_| io::Error::new(io::ErrorKind::Other, "Invalid name")));
 
@@ -163,7 +163,7 @@ impl<'a> MemFd<'a> {
         Ok(memfd)
     }
 
-    pub unsafe fn new_from_fd(fd: RawFd) -> Result<MemFd<'a>, io::Error> {
+    pub unsafe fn new_from_fd(fd: RawFd) -> Result<MemFd, io::Error> {
         let mut memfd = MemFd {
             fd: fd,
             map: Map::Unmapped,
@@ -204,7 +204,7 @@ impl<'a> MemFd<'a> {
 
     fn unmap(&mut self) -> Result<(), io::Error> {
         match self.map {
-            Map::ReadWrite(_, p, size) => {
+            Map::ReadWrite(p, size) => {
                 match munmap(p, size) {
                     Ok(_) => {
                         self.map = Map::Unmapped;
@@ -227,23 +227,18 @@ impl<'a> MemFd<'a> {
 
         let size = try!(self.get_size());
 
-        unsafe {
-            let p = match mmap(ptr::null_mut(),
-                               size as size_t,
-                               PROT_READ | PROT_WRITE,
-                               MAP_SHARED,
-                               self.fd,
-                               0) {
-                Ok(p) => p,
-                Err(nix::Error::Sys(errno)) => {
-                    return Err(io::Error::from_raw_os_error(errno as i32))
-                }
-                Err(_) => unreachable!(),
-            };
+        let p = match mmap(ptr::null_mut(),
+                           size as size_t,
+                           PROT_READ | PROT_WRITE,
+                           MAP_SHARED,
+                           self.fd,
+                           0) {
+            Ok(p) => p,
+            Err(nix::Error::Sys(errno)) => return Err(io::Error::from_raw_os_error(errno as i32)),
+            Err(_) => unreachable!(),
+        };
 
-            let slice: &'a mut [u8] = slice::from_raw_parts_mut(p as *mut u8, size);
-            self.map = Map::ReadWrite(slice, p, size);
-        }
+        self.map = Map::ReadWrite(p, size);
 
         Ok(())
     }
@@ -256,7 +251,7 @@ impl<'a> MemFd<'a> {
         }
     }
 
-    pub fn as_slice(&self) -> Result<&[u8], io::Error> {
+    pub fn as_slice<'a>(&'a self) -> Result<&'a [u8], io::Error> {
         let size = try!(self.get_size());
         if size == 0 {
             return Ok(&[]);
@@ -264,22 +259,22 @@ impl<'a> MemFd<'a> {
 
         match self.map {
             Map::Unmapped => Err(io::Error::new(io::ErrorKind::PermissionDenied, "unmapped")),
-            Map::ReadWrite(ref s, _, _) => Ok(s),
+            Map::ReadWrite(p, s) => Ok(unsafe { slice::from_raw_parts(p as *const u8, s) }),
         }
     }
 
-    pub fn as_mut_slice(&mut self) -> Result<&mut [u8], io::Error> {
+    pub fn as_mut_slice<'a>(&'a mut self) -> Result<&'a mut [u8], io::Error> {
         let size = try!(self.get_size());
         if size == 0 {
             return Ok(&mut []);
         }
         match self.map {
             Map::Unmapped => Err(io::Error::new(io::ErrorKind::PermissionDenied, "unmapped")),
-            Map::ReadWrite(ref mut s, _, _) => Ok(s),
+            Map::ReadWrite(p, s) => Ok(unsafe { slice::from_raw_parts_mut(p as *mut u8, s) }),
         }
     }
 
-    pub fn seal<'b>(mut self) -> Result<SealedMemFd<'b>, io::Error> {
+    pub fn seal(mut self) -> Result<SealedMemFd, io::Error> {
         let fd = self.fd;
         try!(self.unmap());
         self.fd = -1;
@@ -300,7 +295,7 @@ impl<'a> MemFd<'a> {
     }
 }
 
-impl<'a> Drop for MemFd<'a> {
+impl Drop for MemFd {
     fn drop(&mut self) {
         let _ = self.unmap();
         if self.fd != -1 {
@@ -309,7 +304,7 @@ impl<'a> Drop for MemFd<'a> {
     }
 }
 
-impl<'a> IntoRawFd for MemFd<'a> {
+impl IntoRawFd for MemFd {
     fn into_raw_fd(self) -> RawFd {
         match self.seal() {
             Ok(sealed) => sealed.into_raw_fd(),
@@ -318,8 +313,8 @@ impl<'a> IntoRawFd for MemFd<'a> {
     }
 }
 
-impl<'a> SealedMemFd<'a> {
-    pub fn new(fd: RawFd) -> Result<SealedMemFd<'a>, io::Error> {
+impl SealedMemFd {
+    pub fn new(fd: RawFd) -> Result<SealedMemFd, io::Error> {
         let mut memfd = SealedMemFd {
             fd: fd,
             map: SealedMap::Unmapped,
@@ -347,7 +342,7 @@ impl<'a> SealedMemFd<'a> {
 
     fn unmap(&mut self) -> Result<(), io::Error> {
         match self.map {
-            SealedMap::ReadOnly(_, p, size) => {
+            SealedMap::ReadOnly(p, size) => {
                 match munmap(p, size) {
                     Ok(_) => {
                         self.map = SealedMap::Unmapped;
@@ -367,25 +362,20 @@ impl<'a> SealedMemFd<'a> {
     fn update_map(&mut self) -> Result<(), io::Error> {
         try!(self.unmap());
 
-        unsafe {
-            let size = try!(self.get_size());
+        let size = try!(self.get_size());
 
-            let p = match mmap(ptr::null_mut(),
-                               size as size_t,
-                               PROT_READ,
-                               MAP_PRIVATE,
-                               self.fd,
-                               0) {
-                Ok(p) => p,
-                Err(nix::Error::Sys(errno)) => {
-                    return Err(io::Error::from_raw_os_error(errno as i32))
-                }
-                Err(_) => unreachable!(),
-            };
+        let p = match mmap(ptr::null_mut(),
+                           size as size_t,
+                           PROT_READ,
+                           MAP_PRIVATE,
+                           self.fd,
+                           0) {
+            Ok(p) => p,
+            Err(nix::Error::Sys(errno)) => return Err(io::Error::from_raw_os_error(errno as i32)),
+            Err(_) => unreachable!(),
+        };
 
-            let slice: &'a [u8] = slice::from_raw_parts(p as *const u8, size);
-            self.map = SealedMap::ReadOnly(slice, p, size);
-        }
+        self.map = SealedMap::ReadOnly(p, size);
 
         Ok(())
     }
@@ -398,19 +388,19 @@ impl<'a> SealedMemFd<'a> {
         }
     }
 
-    pub fn as_slice(&self) -> Result<&[u8], io::Error> {
+    pub fn as_slice<'a>(&'a self) -> Result<&'a [u8], io::Error> {
         let size = try!(self.get_size());
         if size == 0 {
             return Ok(&[]);
         }
 
         match self.map {
-            SealedMap::ReadOnly(ref s, _, _) => Ok(s),
+            SealedMap::ReadOnly(p, s) => Ok(unsafe { slice::from_raw_parts(p as *const u8, s) }),
             SealedMap::Unmapped => unreachable!(),
         }
     }
 
-    pub fn clone<'b>(&self) -> Result<SealedMemFd<'b>, io::Error> {
+    pub fn clone(&self) -> Result<SealedMemFd, io::Error> {
         let new_fd = match dup(self.fd) {
             Ok(fd) => fd,
             Err(nix::Error::Sys(errno)) => return Err(io::Error::from_raw_os_error(errno as i32)),
@@ -421,7 +411,7 @@ impl<'a> SealedMemFd<'a> {
     }
 }
 
-impl<'a> Drop for SealedMemFd<'a> {
+impl Drop for SealedMemFd {
     fn drop(&mut self) {
         let _ = self.unmap();
         if self.fd != -1 {
@@ -430,13 +420,13 @@ impl<'a> Drop for SealedMemFd<'a> {
     }
 }
 
-impl<'a> AsRawFd for SealedMemFd<'a> {
+impl AsRawFd for SealedMemFd {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
     }
 }
 
-impl<'a> IntoRawFd for SealedMemFd<'a> {
+impl IntoRawFd for SealedMemFd {
     fn into_raw_fd(mut self) -> RawFd {
         let fd = self.fd;
         self.fd = -1;
