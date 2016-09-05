@@ -135,6 +135,7 @@ enum SealedMap {
     ReadOnly(*mut c_void, usize),
 }
 
+#[derive(Debug)]
 pub struct SealedMemFd {
     fd: RawFd,
     map: SealedMap,
