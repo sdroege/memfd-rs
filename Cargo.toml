@@ -2,6 +2,17 @@
 name = "memfd"
 version = "0.1.0"
 authors = ["Sebastian Dröge <sebastian@centricular.com>"]
+license = "BSD-3-Clause"
+keywords = ["memory", "allocation", "ipc", "memfd", "linux"]
+description = """
+Provides a wrapper around Linux' memfd feature
+"""
+
+include = [
+    "src/lib.rs",
+    "LICENSE",
+    "Cargo.toml",
+]
 
 [dependencies]
 libc = "0.2"
