@@ -17,3 +17,6 @@ include = [
 [dependencies]
 libc = "0.2"
 nix = "0.6"
+
+[dev-dependencies]
+getopts = "0.2"
