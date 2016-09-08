@@ -142,7 +142,7 @@ impl Drop for UnixDatagram {
     }
 }
 
-fn run_server(path: &String) {
+fn run_server<P: AsRef<Path>>(path: P) {
     let dg = UnixDatagram::bind(path).unwrap();
 
     loop {
@@ -160,8 +160,9 @@ fn run_server(path: &String) {
     }
 }
 
-fn run_client(path: &String) {
+fn run_client<P: AsRef<Path>>(path: P) {
     let dg = UnixDatagram::new().unwrap();
+    let path_ref = path.as_ref();
 
     loop {
         let data = [0, 1, 2, 3, 4, 5, 6, 7];
@@ -177,7 +178,7 @@ fn run_client(path: &String) {
 
         let smfd = mfd.seal().unwrap();
 
-        let res = dg.send(path, &data, Some(&smfd));
+        let res = dg.send(path_ref, &data, Some(&smfd));
         println!("Sent: {:?}", res);
         res.unwrap();
     }
