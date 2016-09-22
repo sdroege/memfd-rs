@@ -76,7 +76,7 @@ impl UnixDatagram {
                 sendmsg(self.fd,
                         &iov,
                         &[ControlMessage::ScmRights(&[fd.as_raw_fd()])],
-                        MsgFlags::empty(),
+                        MSG_CMSG_CLOEXEC,
                         Some(&SockAddr::Unix(addr)))
             }
             None => {
@@ -102,7 +102,7 @@ impl UnixDatagram {
         let iov = [IoVec::from_mut_slice(data)];
         let mut cmsgs: CmsgSpace<[RawFd; 1]> = CmsgSpace::new();
 
-        let msg = match recvmsg(self.fd, &iov, Some(&mut cmsgs), MsgFlags::empty()) {
+        let msg = match recvmsg(self.fd, &iov, Some(&mut cmsgs), MSG_CMSG_CLOEXEC) {
             Ok(msg) => msg,
             Err(nix::Error::Sys(errno)) => {
                 return Err(io::Error::from_raw_os_error(errno as i32));
